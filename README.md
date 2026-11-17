@@ -12,8 +12,8 @@ It does not make the agent faster. It makes the process something you can watch,
 and that is the point: a small, steady dose of "something is being built right
 now" while you wait.
 
-A character sits at the bottom of the panel: the invisible agent given a body,
-doing the emotional labour for you.
+The invisible AI given a body: doing the emotional labour for you, and keeping
+you company while you wait.
 
 ## Features
 
