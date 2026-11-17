@@ -19,8 +19,7 @@ you company while you wait.
 
 - **Watch the code being typed.** The change happens on the file's real text,
   line by line — not in a diff you read afterwards.
-- **The AI, personified.** The invisible agent becomes a character at the bottom
-  of the panel: typing, wearing out, taking a coffee.
+- **The AI, personified.**
 - **Your character, your drink.** Switch between 大肥鱼 and 小绿, coffee and tea,
   and show or hide the scene, from the gear.
 
