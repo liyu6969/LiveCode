@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-**Watch the code being written.**
+**Watch the AI write the code.**
 
 Most of the time an agent finishes, hands you a diff, and you read it after the
 fact. LiveCode plays that moment instead — for the feeling of watching it happen,
