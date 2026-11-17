@@ -124,3 +124,7 @@ the architecture, the decisions behind it, and the traps already paid for.
 | `dev/render-probe.cjs` | headless render check |
 | `README.md` / `README.zh.md` | this document |
 | `HANDOFF.md` | maintenance notes |
+
+## License
+
+MIT © 2026 liyu — see [LICENSE](LICENSE).

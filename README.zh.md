@@ -86,3 +86,7 @@ OPEN=1 node dev/render-probe.cjs   # 连弹窗和停留帧一起渲染
 | `dev/render-probe.cjs` | 无头渲染自测 |
 | `README.md` / `README.zh.md` | 本文件（中英两版） |
 | `HANDOFF.md` | 维护笔记 |
+
+## 许可证
+
+MIT © 2026 liyu，详见 [LICENSE](LICENSE)。
