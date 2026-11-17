@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "Live code-change panel in the right Sidebar: streams the file a write/edit call is producing, boxed on the region it replaces.",
+  "icon": "icon.png",
   "type": "module",
   "exports": {
     ".": "./index.js",
