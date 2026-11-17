@@ -27,11 +27,24 @@ you company while you wait.
 
 LiveCode is a DeepSeek Harness (DSH) bundle: no build step, no dependencies.
 
-1. Settings → Plugins → **Add plugin**
-2. Enter the absolute path of this directory
-3. Enable **实时代码 / LiveCode**, then ask the agent to change a file
+In DeepSeek: **Settings → Plugins → Add plugin**, and paste the repository
+address:
 
-Or from an agent session: `plugin_manager install_bundle target=/absolute/path`.
+```
+https://github.com/liyu6969/LiveCode
+```
+
+(`github:liyu6969/LiveCode` works too.) Then enable **实时代码 / LiveCode** and ask
+the agent to change a file — the panel opens on its own.
+
+A local directory works the same way: paste its absolute path there, or from an
+agent session run `plugin_manager install_bundle target=/absolute/path`. A local
+directory is linked, so code changes reload in place; the repository address
+installs a snapshot, which needs reinstalling to update.
+
+> Typing just `LiveCode` does not work yet: that form is for a package published
+> to npm, and this one is not published. Use the repository address or a local
+> path.
 
 ## Use
 

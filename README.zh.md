@@ -20,11 +20,18 @@
 
 LiveCode 是一个 DeepSeek Harness（DSH）Web GUI 插件包，没有构建步骤、没有依赖。
 
-1. 设置 → 插件 → **添加插件**
-2. 填这个目录的绝对路径
-3. 启用 **实时代码 / LiveCode**，然后让 agent 改一个文件
+在 DeepSeek 里：**设置 → 插件 → 添加插件**，把仓库地址贴进去：
 
-或者在 agent 会话里：`plugin_manager install_bundle target=/绝对路径`。
+```
+https://github.com/liyu6969/LiveCode
+```
+
+（也接受 `github:liyu6969/LiveCode` 这种简写。）安装完成后启用 **实时代码 / LiveCode**，然后让 agent 改一个文件，面板会自己打开。
+
+也可以装本地目录：同一处填目录的绝对路径，或者在 agent 会话里 `plugin_manager install_bundle target=/绝对路径`。
+本地目录是链接安装，改完代码重新加载即可生效；从仓库地址安装拿到的是当时的快照，更新要重新安装。
+
+> 直接输入 `LiveCode` 目前不行——这种写法是给已发布到 npm 的包用的，本插件还没有发布，请用上面的仓库地址或本地路径。
 
 ## 使用
 
