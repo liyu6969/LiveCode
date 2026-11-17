@@ -12,7 +12,8 @@ It does not make the agent faster. It makes the process something you can watch,
 and that is the point: a small, steady dose of "something is being built right
 now" while you wait.
 
-A small character sits at the bottom of the panel and types along with the agent.
+A character sits at the bottom of the panel: the invisible agent given a body,
+typing along with you.
 
 ## Features
 
