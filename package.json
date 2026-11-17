@@ -16,6 +16,7 @@
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
+    "assets/wechat-qr.jpg",
     "README.md",
     "README.zh.md",
     "HANDOFF.md",

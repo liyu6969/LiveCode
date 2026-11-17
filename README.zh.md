@@ -63,3 +63,11 @@ OPEN=1 node dev/render-probe.cjs   # 连弹窗和停留帧一起渲染
 ## 许可证
 
 MIT © 2026 liyu，详见 [LICENSE](LICENSE)。
+
+## 联系我
+
+微信：扫码加我
+
+<img src="assets/wechat-qr.jpg" alt="微信二维码" width="220">
+
+X：[liyust11](https://x.com/liyust11)
