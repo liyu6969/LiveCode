@@ -15,7 +15,7 @@ now" while you wait.
 The invisible AI given a body: doing the emotional labour for you, and keeping
 you company while you wait.
 
-<p align="center"><img src="assets/livecode-demo.gif" alt="LiveCode in action: the change appears line by line in the sidebar panel" width="640"></p>
+![LiveCode in action: the change appears line by line in the sidebar panel](assets/livecode-demo.gif)
 
 ## Features
 
@@ -82,7 +82,7 @@ OPEN=1 node dev/render-probe.cjs   # also render popovers and held frames
 
 WeChat — scan to add me:
 
-<img src="assets/wechat-qr.jpg" alt="WeChat QR code" width="220">
+![WeChat QR code](assets/wechat-qr.jpg)
 
 X: [@liyust11](https://x.com/liyust11)
 

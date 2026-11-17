@@ -10,7 +10,7 @@
 
 把那个看不见的 AI 显化成一个人，正在帮你心情的劳作，也是一种等待的陪伴。
 
-<p align="center"><img src="assets/livecode-demo.gif" alt="LiveCode 实际效果：改动在侧栏面板里一行行长出来" width="640"></p>
+![LiveCode 实际效果：改动在侧栏面板里一行行长出来](assets/livecode-demo.gif)
 
 ## 功能
 
@@ -66,7 +66,7 @@ OPEN=1 node dev/render-probe.cjs   # 连弹窗和停留帧一起渲染
 
 微信：扫码加我
 
-<img src="assets/wechat-qr.jpg" alt="微信二维码" width="220">
+![微信二维码](assets/wechat-qr.jpg)
 
 X：[liyust11](https://x.com/liyust11)
 

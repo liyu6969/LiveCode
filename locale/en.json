@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "LiveCode",
-    "description": "LiveCode 实时代码 — watch the code appear as it is written: the right Sidebar opens a LiveCode tab on the newest write or edit call, keeps one chip per touched file, follows the file being written, lays the whole original file out first, boxes the region the call replaces, folds the old lines away and grows the new ones in place; past 200 written lines the character goes berserk (speed lines, screen glow, smoking keyboard). Once the call settles the tab becomes the complete file, scrollable, with a gutter bar beside every touched line and Applied / Not applied from the tool result. A character scene sits at the bottom: typing fast and scrolling its screen while writing, coffee or tea after 5 idle minutes, a nap after 10 — character, drink and visibility switch in the gear popover. write and edit only (apply_patch and shell edits are not followed), readable UTF-8 files only; turn the bundle off in Settings → Plugins to remove it."
+    "description": "Watch the AI write the code. Most of the time an agent finishes, hands you a diff, and you read it after the fact. LiveCode plays that moment instead — for the feeling of watching it happen, the thing a finished diff never gives you."
   }
 }
