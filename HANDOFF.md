@@ -9,7 +9,7 @@
 
 ## 位置与安装
 
-- 源码：`/Users/liyu/Desktop/DeepSeekNiu/dsh-code-live/`（[client.js](client.js) 是全部逻辑，约 1160 行，零外部依赖）
+- 源码：`/Users/liyu/Desktop/DeepSeekNiu/dsh-code-live/`（[client.js](client.js) 是全部逻辑，约 1800 行，零外部依赖）
 - 已安装进 `desktop` profile，插件行 `include:dsh-code-live`，bundle `@local/dsh-code-live`（`link:` 到工作区目录）
 - 改完 `client.js` 后热更新：`plugin_manager set_plugin` 先 `enabled:false` 再 `enabled:true`，target 用 `include:dsh-code-live`
 - 用的宿主 API：`ctx.sidebarRightTabs.register` + `ctx.slots.register`（`sidebar.right.pane.tab` 键位）、`ctx.sidebarRight.openTab/active`、`ctx.remote.workspaceFiles.read`、`ctx.locale`、`ctx.slots.register`（`conversation.composer.dock` 上挂无渲染 watcher）
@@ -37,7 +37,7 @@
 1. **头部**：`write`/`edit` 徽标 + 绝对路径 + 状态胶囊（生成中 / 待执行 / 已应用 / 未生效）
 2. **tab 条**（`.dcl-tabbar` > `.dcl-tabs`）：每文件一个 chip，圆点表状态；活跃 chip 强调色；`×` 关闭单条；**右键**菜单（关闭其他 / 关闭全部）；活跃 chip 变化时横向滚动进视野
 3. **代码区**：
-   - 流式：完整原文件 + 一个遮罩框（`.dcl-overlay`），框内旧行收起、新行逐行淡入；行数变少 → 红框（删除），否则绿框
+   - 流式：完整原文件 + 一个遮罩框（`.dcl-overlay`），旧块先留着，新行按播放头逐行淡入；参数闭合后把被删的旧行逐行划掉（红框），再折叠旧块、驻留，最后切成整文件视图
    - 落定：`diffRows(before, after)` 出完整新文件，改动行左侧绿竖线（`.dcl-bar`），删除行**不显示**任何标记
 4. **空态**：图标 + 标题 + 说明 + "等待 write/edit" 胶囊；全部关闭时换成"标签都已关闭 + 重新显示"
 
@@ -55,6 +55,7 @@
 - **删除判定按行数**：`newShown.length < count` 才算删除；只认"`new_string` 已闭合"（`settledArg`）之后，否则每个 edit 起手都会闪红
 - **删除帧停留 1.4s**：删除没有新文字可演，落定瞬间就会切到文件视图，不停一会儿看不见
 - **自动打开不抢键盘焦点**：`openTab` 后 120ms 若焦点被面板拿走则还给 `document.activeElement`
+- **自动打开的判定要连"展开"一起看**：关闭右侧面板只是把列收起来（collapse），tab 还在 layout 里、`sidebarRight.active()` 仍返回它。只比 `active().kind` 就会认为"已经在显示"，关过一次之后这个会话里再写代码也不开。`shouldReveal(activeKind, expanded)` 要求 tab 在前 **且** 列展开；任一不满足就 `openTab`（它自己会展开列）。
 - **行号列定宽 24px**：保证每行代码起点对齐；代价是 >9999 行会裁位
 
 ## 配置
@@ -65,20 +66,50 @@
 
 注意：本包是 `link:` 安装、没有自己的 node_modules，直接 `import '@deepseek-ai/schemastery'` 会 ERR_MODULE_NOT_FOUND。`index.js` 里用 `createRequire` 从 `DSH_INSTALL_DIR` / `process.resourcesPath` 借宿主那份，解析不到就不导出 Config（只丢校验，不影响运行）。
 
-## 场景里两处对 demo 源的小改动
+## 场景里三处对 demo 源的小改动
 
-都不改嵌入的 `SCENE` 资源，而是在运行前对 `SCENE.rig` 做字符串替换 / 加 class：
+都不改嵌入的 `SCENE` 资源，而是在运行前对 `SCENE.rig` 做字符串替换 / 加 class / 补节点：
 
 1. **屏幕滚动只在写代码时**：`frame()` 里 `codeClock=(codeClock+dt*(90+intensity*180))%codePeriod;` 被包成 `if(!scene.classList.contains('screen-idle'))...`，`SceneFigure` 按 `active` 加/去 `screen-idle`。替换失败会 `console.warn('[dsh-code-live] screen-scroll patch did not apply')`。
 2. **烟雾/速度线/光晕**：`smoking` class + `setCodingIntensity(1)`，见上面。
+3. **补回 `#code-scroll` 桩节点**：抽 `SCENE.html` 时漏了这个按钮（rig 里叫 `#code-scroll`，不带 `dcl-` 前缀），rig 在 `codeScrollButton.addEventListener` 处抛 `TypeError: ... of null`。这一抛发生在 `frame` 定义/调度之前，于是整个 rig 后半截全没执行：人物不动、手臂不上屏、屏幕没代码、烟雾不出，只有纯 CSS 的暴走速度线和光晕照常。`SceneFigure` 现在在跑 rig 前按 id 补建缺失的桩节点（`for (const id of ['code-scroll'])`），以后再抽资源漏东西也会走这条路，而不是静默冻住。
 
 休息态（10 分钟空闲）用的是 demo 新版的 `window.setResting(true)`：`resting` 变量 + `.resting` class（双手静止、Zzz 由 CSS 播放），喝东西时不能进休息、休息时不能喝，这两条 demo 规则原样保留。阈值 `REST_MS` 在 `client.js` 里。
 
 **注意**：demo 的休息摇摆是 `body.y = lerp(...,1.5*breath,r)+2.2*r`，1.5 个画布单位；我们的场景高 168px（缩放 0.256），换算约 0.4px，肉眼不可见。用户明确要求"按原参数、看不清也接受"，所以**不要**擅自放大系数。要看清楚只有两条路：调大 `sceneHeight`，或者经确认后放大系数。
 
+## 滚动跟随的两条规则
+
+1. **流式期间跟随**：`SceneFigure` 之外的 `useEffect` 每来一段新文本，量 `[data-dcl-anchor]`（流式时是遮罩框，落定后是第一处改动行）相对 `.dcl-body` 的位置，超出可视区就把 `body.scrollTop` 往下推，底部留 32px 余量；如果 `.dcl-body` 本身不是滚动容器（`scrollTop` 没变），退回对最后一行 `scrollIntoView`。
+2. **谁算"用户接管"**：只用 `onWheel` 判断——向上滚视为用户接管，向下滚恢复跟随。**不要**再用"距文档底部 < N px"来推断，遮罩框下面还有文件剩余行，一滚动就会误判成用户滚走，跟一屏就停（这个坑踩过）。
+3. **落定不回跳**：`followedCallRef` 记住跟随过的那次调用，落定时不做"跳到第一处改动"，停在原位置；只有切换到别的标签才跳。
+
+## 演出节奏（慢放）
+
+流式窗口可能比一帧还短（几行的 edit 参数一两片就写完、工具毫秒级返回），旧实现直接把"过程"跳过去，只留下静态 diff。现在面板由**播放头**驱动，不再由快照驱动：
+
+- `nextBeat(state, input)`：纯函数状态机 `enter → reveal → strike → collapse → hold → done`。`reveal` 里下一行还没到就返回 `null`（等流），到了才按节拍推进。
+- 时长（`client.js` 顶部常量）：enter 180ms；reveal 总预算 1100ms（每行 clamp 3–110ms）；strike 总预算 800ms、最多 12 拍（`strikeBatch` 每拍划一批）；collapse 340ms；hold 380ms。最坏 ~2.8s。
+- `usePacing`：`setTimeout` 自续链 + refs。流式快照再密也不会重置节拍（旧的 effect 写法会被快照打断）；`callId` 变即重置；`document.hidden`、点遮罩框（`skip`）、`pace=off` 都直接跳到落定。
+- 旧块来源：优先 `baseline` 里的 `region`；定位不到（或调用一出现就已落定、`base` 是 `none`）时退回 `linesOf(old_string)` —— 这是"首次看到就 settled"也能演出的关键。
+- 删除判定：`planBlockRemoval(oldBlock, newLines)` 行级 LCS，`struck` = 没配上的旧行。纯插入 → 空（不会像旧的行数比较那样误闪红）；参数没闭合前不算删除。
+- 落定后仍在播：`showLive = !settled || play.step !== 'done'`，看完最后一拍才切到整文件视图；期间胶囊仍是"已应用"（视图在回放，不是状态在回退）。
+- 赛后回放：首次看到就已落定、且 `call.time` 距今 < `REPLAY_MS`（8s）时，照样用 `old_string`/`new_string` 播一遍；更老的历史直接静态显示。
+- `prefers-reduced-motion` 只关 CSS 动画；要连驻留一起去掉就把 pace 调成"关"。
+- 设置第三行"演出节奏"（慢 ×1.8 / 标准 ×1 / 关 ×0），存 `localStorage['dsh-code-live.pace']`。
+
+改节奏只动顶部那组常量。踩过的坑：`enter` 会等 `base` 读完最多 600ms（`state.waited`），否则框先出现在文件顶部、读到了再跳到正确位置。
+
 ## 改 client.js 后先跑自测
 
-`node dev/render-probe.cjs`（加 `OPEN=1` 会把所有布尔态打开，连弹窗一起渲染） —— 无头渲染三种状态（空页 / 已落定 / 流式中），用假 React + 假 ctx 把 `CodeLiveTab` 真跑一遍。能抓到"某段常量被误删导致 ReferenceError"这类崩溃（曾经发生过：重抽 SCENE 资源时把紧跟其后的 `SETTINGS` 一起覆盖掉，面板直接空白）。
+`node dev/render-probe.cjs`（加 `OPEN=1` 会把所有布尔态打开，连弹窗一起渲染） —— 无头渲染三种状态（空页 / 已落定 / 流式中），用假 React + 假 ctx 把 `CodeLiveTab` 真跑一遍。
+
+另有三个探针：
+
+- `node dev/autoopen-probe.cjs` —— 自动打开 watcher（render-probe 的假 React 不跑 effect，覆盖不到）：面板展开且本 tab 在前时不抢、收起后再写代码要重新打开、切到别的 tab 要抢回来、tab 被关掉要重建、同一个 call 只开一次。
+
+- `node dev/pace-probe.cjs` —— 纯函数层：LCS 删除判定、两行改动 ~1.36s、三行删除 ~1.26s、400 行写入 ~2.1s、240 行删除 12 拍。
+- `node dev/pacing-probe.cjs` —— 用一个微型 hooks runtime + 假时钟把 `usePacing` 真跑一遍：等待流、落定后补播、换 callId 重置、`skip`、`pace=off`。能抓到"某段常量被误删导致 ReferenceError"这类崩溃（曾经发生过：重抽 SCENE 资源时把紧跟其后的 `SETTINGS` 一起覆盖掉，面板直接空白）。
 
 注意：`SCENE` 资源块和 `SETTINGS` 常量相邻，重抽资源时替换区间只能是 `const SCENE = {` 到紧随其后的 `/** The two file-mutation calls...`，不要把 SETTINGS 卷进去。
 

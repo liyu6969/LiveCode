@@ -57,6 +57,28 @@ window.__ModuleLoader__.load({
     /** Complete-file lines rendered at most once a call settles. */
     const MAX_FILE_VIEW = 1500
 
+    /**
+     * Playback pacing. A change is replayed at this cadence instead of at whatever
+     * speed the stream happened to produce, so a two-line edit cannot flash past.
+     * The worst case stays under ~2.8s: enter + reveal budget + strike budget +
+     * collapse + hold.
+     */
+    const ENTER_MS = 180
+    const REVEAL_BUDGET = 1100
+    const REVEAL_MIN = 3
+    const REVEAL_MAX = 110
+    const STRIKE_BUDGET = 800
+    const STRIKE_MIN = 35
+    const STRIKE_MAX = 120
+    const COLLAPSE_MS = 340
+    const HOLD_MS = 380
+    /** Above this many (old x new) cells the line pairing gives up and strikes the tail. */
+    const MAX_MATCH_CELLS = 120000
+    /** A settled call younger than this still plays its change instead of just showing it. */
+    const REPLAY_MS = 8000
+    /** Speed multipliers behind the 慢 / 标准 / 关 setting. */
+    const PACE_FACTOR = { slow: 1.8, normal: 1, off: 0 }
+
     const zh = {
       tabTitle: '实时代码',
       guideTitle: '实时代码',
@@ -87,6 +109,11 @@ window.__ModuleLoader__.load({
       switchDrink: '切换饮品（咖啡 / 茶）',
       drinkCoffee: '咖啡',
       drinkTea: '茶',
+      paceLabel: '演出节奏',
+      paceSlow: '慢',
+      paceNormal: '标准',
+      paceOff: '关',
+      skipPlay: '点击跳过播放',
       tabMenu: '标签页操作',
       closeOthers: '关闭其他标签',
       closeAll: '关闭全部标签',
@@ -131,6 +158,11 @@ window.__ModuleLoader__.load({
       switchDrink: 'Switch drink (coffee / tea)',
       drinkCoffee: 'Coffee',
       drinkTea: 'Tea',
+      paceLabel: 'Pace',
+      paceSlow: 'Slow',
+      paceNormal: 'Normal',
+      paceOff: 'Off',
+      skipPlay: 'Click to skip the playback',
       tabMenu: 'Tab actions',
       closeOthers: 'Close other tabs',
       closeAll: 'Close all tabs',
@@ -250,14 +282,19 @@ window.__ModuleLoader__.load({
 .dcl-newset { background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 10%, transparent); }
 .dcl-collapse { display: grid; grid-template-rows: 1fr; padding: 0 8px; transition: grid-template-rows .34s ease, opacity .28s ease; }
 .dcl-collapse.is-gone { grid-template-rows: 0fr; opacity: 0; }
-.dcl-row.is-new { animation: dcl-line-in .26s ease both; }
+.dcl-collapse > .dcl-oldset { min-height: 0; overflow: hidden; }
+.dcl-row.is-new { animation: dcl-line-in .3s ease both; }
+.dcl-row.is-removing { background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent); }
+.dcl-row.is-removing .dcl-code { text-decoration: line-through; text-decoration-color: var(--dsw-alias-state-error-primary); text-decoration-thickness: 1.5px; animation: dcl-line-out .24s ease both; }
 .dcl-caret { display: inline-block; width: 6px; height: 13px; margin-left: 2px; vertical-align: -2px; background: var(--dsw-alias-state-success-primary); animation: dcl-blink 1s steps(1) infinite; }
 .dcl-omitted { padding: 2px 8px 2px 39px; font-size: 11px; line-height: 18px; color: var(--dsw-alias-label-secondary); font-style: italic; }
 @keyframes dcl-line-in { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
+@keyframes dcl-line-out { from { opacity: 1; } to { opacity: .4; } }
 @keyframes dcl-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
 @keyframes dcl-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
   .dcl-row.is-new { animation: none; }
+  .dcl-row.is-removing .dcl-code { animation: none; }
   .dcl-pill.is-streaming .dcl-dot { animation: none; }
   .dcl-tab-dot.is-streaming { animation: none; }
   .dcl-caret { animation: none; display: none; }
@@ -333,6 +370,21 @@ window.__ModuleLoader__.load({
         const style = document.createElement('style')
         style.textContent = SCENE.css
         host.appendChild(style)
+        // The rig wires its own controls by id and assumes every stub is present.
+        // The code-scroll toggle is missing from this html block, and a null there
+        // threw during listener setup — before `frame` was ever scheduled, so the
+        // character stayed frozen while CSS-only effects (speed lines, glow) still
+        // worked. Recreate any stub the rig needs and the markup has lost.
+        for (const id of ['code-scroll']) {
+          if (document.getElementById(id) !== null) continue
+          const stubs = host.querySelector('.dcl-scene-stubs')
+          if (stubs === null) break
+          const stub = document.createElement('button')
+          stub.id = id
+          stub.type = 'button'
+          stub.tabIndex = -1
+          stubs.appendChild(stub)
+        }
         try {
           // The demo scrolls the screen code all the time; here it moves only while
           // a call is writing, so an idle screen sits still.
@@ -499,6 +551,21 @@ window.__ModuleLoader__.load({
       return at === -1 ? path : path.slice(at + 1)
     }
 
+    /**
+     * Whether a new file mutation should bring the panel forward.
+     *
+     * The column can be collapsed with this tab still recorded as the active
+     * one — closing the panel is a collapse, not a close — so `active()` alone
+     * would call the panel "showing" forever after the user hides it. A reveal
+     * needs both: the tab in front and the column expanded.
+     * @param activeKind - the kind of the active tab, or undefined.
+     * @param expanded - whether the column is showing its panel.
+     * @returns whether the next file call must open (and expand to) the tab.
+     */
+    function shouldReveal(activeKind, expanded) {
+      return expanded !== true || activeKind !== TAB_KIND
+    }
+
     /** The lifecycle stage one entry is in, shared by the pill and a tab dot. */
     function stageOf(file) {
       if (file.settled) return file.call.isError === true ? 'reverted' : 'applied'
@@ -591,6 +658,169 @@ window.__ModuleLoader__.load({
       const lines = text.split('\n')
       if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop()
       return lines
+    }
+
+    /** How many of the old block's lines a change takes away. */
+    function planBlockRemoval(oldLines, newLines) {
+      const n = oldLines.length
+      const m = newLines.length
+      if (n === 0) return { struck: [] }
+      if (m === 0) return { struck: oldLines.map((_, index) => index) }
+      if (n * m > MAX_MATCH_CELLS) {
+        const pool = new Set(newLines)
+        const struck = []
+        for (let i = 0; i < n; i++) if (!pool.has(oldLines[i])) struck.push(i)
+        return { struck }
+      }
+      // Longest common subsequence over lines: two identical lines pair up, and
+      // every old line left without a partner is one the edit removed. An edit
+      // that only inserts lines therefore strikes nothing.
+      const table = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1))
+      for (let i = n - 1; i >= 0; i--) {
+        for (let j = m - 1; j >= 0; j--) {
+          table[i][j] = oldLines[i] === newLines[j]
+            ? table[i + 1][j + 1] + 1
+            : Math.max(table[i + 1][j], table[i][j + 1])
+        }
+      }
+      const struck = []
+      let i = 0
+      let j = 0
+      while (i < n) {
+        if (j < m && oldLines[i] === newLines[j]) { i += 1; j += 1; continue }
+        if (j < m && table[i][j + 1] >= table[i + 1][j]) { j += 1; continue }
+        struck.push(i)
+        i += 1
+      }
+      return { struck }
+    }
+
+    /** Milliseconds between two revealed lines; the reveal gets a fixed budget. */
+    function revealStep(count) {
+      if (count <= 0) return 0
+      return Math.min(REVEAL_MAX, Math.max(REVEAL_MIN, Math.round(REVEAL_BUDGET / count)))
+    }
+
+    /** Milliseconds between two strike beats. At most MAX_STRIKE_BEATS beats run. */
+    const MAX_STRIKE_BEATS = 12
+    function strikeBatch(count) {
+      return Math.max(1, Math.ceil(count / MAX_STRIKE_BEATS))
+    }
+    function strikeStep(beats) {
+      if (beats <= 0) return 0
+      return Math.min(STRIKE_MAX, Math.max(STRIKE_MIN, Math.round(STRIKE_BUDGET / beats)))
+    }
+
+    /**
+     * The next playback beat, or null while the stream still owes lines. The view
+     * is driven by these beats rather than by the stream, which is what lets a
+     * few-line edit play at a readable speed.
+     * @param state - callId, step, revealed lines, strike beats played.
+     * @param input - counts, settlement, and the pace multiplier.
+     * @returns the following state and how long to hold before it applies.
+     */
+    function nextBeat(state, input) {
+      const pace = input.pace
+      switch (state.step) {
+        case 'enter': {
+          // Give the original-file read a moment, so the box does not appear at the
+          // top of the file and then jump to the region once the read lands.
+          if (input.ready === false && state.waited < 600) {
+            return { state: { ...state, waited: state.waited + 120 }, wait: 120 }
+          }
+          return { state: { ...state, step: 'reveal' }, wait: ENTER_MS * pace }
+        }
+        case 'reveal': {
+          if (state.revealed < input.newCount) {
+            return {
+              state: { ...state, revealed: state.revealed + 1 },
+              wait: revealStep(input.newCount) * pace,
+            }
+          }
+          if (!input.settled) return null
+          if (input.struckTotal > 0) return { state: { ...state, step: 'strike' }, wait: 0 }
+          return { state: { ...state, step: input.oldCount > 0 ? 'collapse' : 'hold' }, wait: 0 }
+        }
+        case 'strike': {
+          const beats = Math.ceil(input.struckTotal / strikeBatch(input.struckTotal))
+          if (state.struck < beats) {
+            return { state: { ...state, struck: state.struck + 1 }, wait: strikeStep(beats) * pace }
+          }
+          return { state: { ...state, step: 'collapse' }, wait: 0 }
+        }
+        case 'collapse':
+          return { state: { ...state, step: 'hold' }, wait: COLLAPSE_MS * pace }
+        case 'hold':
+          return { state: { ...state, step: 'done' }, wait: HOLD_MS * pace }
+        default:
+          return null
+      }
+    }
+
+    /**
+     * Play one change out beat by beat. Timers are re-armed from the current state
+     * so a burst of stream snapshots cannot starve the next beat, and a skipped or
+     * hidden panel jumps straight to the settled view.
+     * @param input - callId, active/fresh/enabled gates, counts and pace.
+     * @returns the played step, revealed lines, strike beats, and skip().
+     */
+    function usePacing(input) {
+      const { callId, active, enabled, fresh } = input
+      const [play, setPlay] = useState(() => ({ callId: '', step: 'enter', revealed: 0, struck: 0, waited: 0 }))
+      // A new call (or a new file chip) starts its own play-through.
+      if (play.callId !== callId) setPlay({ callId, step: 'enter', revealed: 0, struck: 0, waited: 0 })
+      const playRef = useRef(play)
+      playRef.current = play
+      const inputRef = useRef(input)
+      inputRef.current = input
+
+      useEffect(() => {
+        if (!active || !enabled || !fresh || callId === '') return undefined
+        let cancelled = false
+        let timer = null
+        const stop = () => {
+          if (cancelled) return
+          const done = { callId, step: 'done', revealed: 0, struck: 0 }
+          playRef.current = done
+          setPlay(done)
+        }
+        const tick = () => {
+          if (cancelled) return
+          const current = playRef.current
+          if (current.callId !== callId || current.step === 'done') return
+          // A hidden panel has no audience: do not hold the settled view back.
+          if (typeof document !== 'undefined' && document.hidden) { stop(); return }
+          const next = nextBeat(current, inputRef.current)
+          if (next === null) {
+            // Waiting for the stream to hand over the next line.
+            timer = setTimeout(tick, 110)
+            return
+          }
+          timer = setTimeout(() => {
+            if (cancelled) return
+            const updated = { ...next.state, callId }
+            playRef.current = updated
+            setPlay(updated)
+            tick()
+          }, next.wait)
+        }
+        tick()
+        return () => {
+          cancelled = true
+          clearTimeout(timer)
+        }
+      }, [callId, active, enabled, fresh])
+
+      const skip = () => {
+        const current = playRef.current
+        if (current.step === 'done') return
+        const done = { callId: current.callId, step: 'done', revealed: 0, struck: 0 }
+        playRef.current = done
+        setPlay(done)
+      }
+
+      if (!active || !enabled || !fresh) return { step: 'done', revealed: 0, struck: 0, skip }
+      return { step: play.step, revealed: play.revealed, struck: play.struck, skip }
     }
 
     /**
@@ -763,7 +993,7 @@ window.__ModuleLoader__.load({
      * in the left gutter, the way a diff marks a line it touched.
      */
     function Row(props) {
-      const { number, text, cells, kind, delay, caret, bar, anchor } = props
+      const { number, text, cells, kind, delay, caret, bar, anchor, removing } = props
       const content = cells === undefined
         ? (text === '' ? '\u00a0' : text)
         : cells.length === 0
@@ -773,7 +1003,7 @@ window.__ModuleLoader__.load({
             : h('span', { key: 't' + String(index), className: 'dcl-tk-' + cell.c }, cell.t))
       const className = kind === 'new' ? 'dcl-row is-new'
         : kind === 'changed' ? 'dcl-row is-changed'
-          : 'dcl-row'
+          : 'dcl-row' + (removing === true ? ' is-removing' : '')
       return h('div', {
         className,
         'data-dcl-anchor': anchor === true ? '' : undefined,
@@ -908,6 +1138,19 @@ window.__ModuleLoader__.load({
       const ownAfter = after !== null && after.callId === callId ? after : null
       const baseline = ownBase !== null && ownBase.status === 'ready' ? ownBase.lines : []
       const region = toolName === 'edit' && oldReady && baseline.length > 0 ? locateRegion(baseline, oldText) : null
+      const newComplete = entry !== null && settledArg(entry.call, toolName === 'write' ? 'content' : 'new_string')
+      // The old block comes from the file when the region was located, and from the
+      // call's own old_string otherwise: a change first seen after settlement has no
+      // readable file to compare against, but it still has something to play against.
+      const oldBlock = toolName === 'write'
+        ? baseline
+        : region !== null
+          ? baseline.slice(region.start, region.start + region.count)
+          : linesOf(oldText)
+      const shownOld = oldBlock.slice(0, MAX_OLD_LINES)
+      const visibleNew = newLines.slice(-MAX_NEW_LINES)
+      const droppedNew = newLines.length - visibleNew.length
+      const removal = toolName === 'edit' && newComplete ? planBlockRemoval(shownOld, visibleNew) : { struck: [] }
 
       const bodyRef = useRef(null)
       const stripRef = useRef(null)
@@ -968,6 +1211,52 @@ window.__ModuleLoader__.load({
           return next
         })
       }
+
+      // How fast a change is played back, persisted like the other preferences.
+      const [pace, setPace] = useState(() => {
+        try {
+          const stored = localStorage.getItem('dsh-code-live.pace')
+          if (stored === 'slow' || stored === 'normal' || stored === 'off') return stored
+        } catch (error) {
+          console.error('[dsh-code-live] pace preference', error)
+        }
+        return 'normal'
+      })
+      const setPacePick = next => {
+        setPace(next)
+        try { localStorage.setItem('dsh-code-live.pace', next) } catch (error) {
+          console.error('[dsh-code-live] pace preference', error)
+        }
+      }
+
+      // Freshness latches once per call: a call first seen while it ran stays
+      // playable after it settles, while old session history does not replay itself.
+      const freshRef = useRef({ callId: '', fresh: true })
+      if (freshRef.current.callId !== callId) {
+        const stamp = entry === null ? Number.NaN : Number(entry.call.time)
+        const at = Number.isFinite(stamp) && stamp > 1e12 ? stamp
+          : Number.isFinite(stamp) && stamp > 1e9 ? stamp * 1000
+            : Number.NaN
+        const age = Number.isFinite(at) ? Math.abs(Date.now() - at) : Number.POSITIVE_INFINITY
+        freshRef.current = { callId, fresh: !settled || age < REPLAY_MS }
+      }
+
+      const pacingOn = PACE_FACTOR[pace] > 0
+      const play = usePacing({
+        callId: entry === null ? '' : callId,
+        active: entry !== null,
+        enabled: pacingOn,
+        fresh: entry === null ? false : freshRef.current.fresh,
+        pace: PACE_FACTOR[pace],
+        ready: ownBase !== null && ownBase.status !== 'loading',
+        newCount: visibleNew.length,
+        settled,
+        oldCount: shownOld.length,
+        struckTotal: removal.struck.length,
+      })
+      // The live view holds while a change is still playing, even after the tool
+      // applied it; the settled file takes over once the last beat lands.
+      const showLive = !settled || play.step !== 'done'
 
       // A call that writes more than SMOKE_LINES keeps the keyboard smoking while it
       // streams and for a moment after it settles.
@@ -1040,8 +1329,11 @@ window.__ModuleLoader__.load({
 
       const stickRef = useRef(true)
       const scrolledForRef = useRef('')
+      const followedCallRef = useRef('')
 
-      // Keep the overlay, not the file end, in view while the arguments stream.
+      // Follow the growing overlay so new lines stay on screen. Only a wheel up by
+      // the reader releases the follow: a programmatic scroll must never look like
+      // one, which is what used to stop the page after the first screenful.
       useEffect(() => {
         const body = bodyRef.current
         if (body === null) return
@@ -1049,22 +1341,37 @@ window.__ModuleLoader__.load({
           scrolledForRef.current = callId
           stickRef.current = true
         }
-        if (!stickRef.current) return
+        if (stickRef.current && showLive) followedCallRef.current = callId
         const anchor = body.querySelector('[data-dcl-anchor]')
         if (anchor === null) {
-          body.scrollTop = body.scrollHeight
+          if (stickRef.current) body.scrollTop = body.scrollHeight
           return
         }
+        if (!stickRef.current) return
         const box = body.getBoundingClientRect()
         const rect = anchor.getBoundingClientRect()
-        if (rect.bottom > box.bottom - 24) body.scrollTop += rect.bottom - box.bottom + 48
-        else if (rect.top < box.top) body.scrollTop -= box.top - rect.top + 16
-      }, [streamText, callId, settled])
+        // Keep a line or two of headroom under the overlay rather than pinning its
+        // last line to the very edge.
+        const margin = 32
+        if (rect.bottom <= box.bottom - margin) return
+        const before = body.scrollTop
+        body.scrollTop = before + (rect.bottom - (box.bottom - margin))
+        // When the body itself is not the scrollport (the panel around it scrolls
+        // instead), move the last row into view and let the ancestors do the work.
+        if (Math.abs(body.scrollTop - before) < 1) {
+          const rows = body.querySelectorAll('.dcl-row')
+          const last = rows.length === 0 ? null : rows[rows.length - 1]
+          if (last !== null) last.scrollIntoView({ block: 'nearest' })
+        }
+      }, [play.revealed, play.step, callId, showLive])
 
       // A settled file is browsable: land on its first changed line when the tab
       // changes, the way opening a diff jumps to the hunk.
       useEffect(() => {
-        if (!settled) return
+        if (showLive) return
+        // The call we were following settles at the bottom of what we just watched;
+        // leave the view there instead of jumping back to the first change.
+        if (followedCallRef.current === callId) return
         const body = bodyRef.current
         if (body === null) return
         const anchor = body.querySelector('[data-dcl-anchor]')
@@ -1075,21 +1382,6 @@ window.__ModuleLoader__.load({
         const delta = anchor.getBoundingClientRect().top - body.getBoundingClientRect().top
         body.scrollTop = Math.max(0, body.scrollTop + delta - 48)
       }, [activePath, settled, ownAfter])
-
-      // A change that removes lines keeps its red frame for a moment after the call
-      // settles, so the deletion is visible before the file takes over.
-      const deleteSettled = settled && toolName === 'edit' && region !== null && baseline.length > 0
-        && newLines.length < region.count
-      const [deleteFrame, setDeleteFrame] = useState(false)
-      useEffect(() => {
-        if (!deleteSettled) {
-          setDeleteFrame(false)
-          return undefined
-        }
-        setDeleteFrame(true)
-        const timer = setTimeout(() => setDeleteFrame(false), 1400)
-        return () => clearTimeout(timer)
-      }, [deleteSettled, callId])
 
       // `start` means the arguments finished streaming and the tool is dispatching — an
       // approval pause lands here, so the pill must not keep claiming generation.
@@ -1138,7 +1430,7 @@ window.__ModuleLoader__.load({
       }
 
       const rows = []
-      if (settled && !deleteFrame) {
+      if (!showLive) {
         // Settled: the complete current file, every touched line marked.
         const view = ownAfter
         let lines = null
@@ -1188,42 +1480,50 @@ window.__ModuleLoader__.load({
           })
         }
       } else {
-        // Streaming: the original file, with one overlay box growing in place.
-        const start = toolName === 'write' ? 0 : (region === null ? -1 : region.start)
-        const count = toolName === 'write' ? baseline.length : (region === null ? 0 : region.count)
-        const oldCount = start >= 0 ? Math.min(count, MAX_OLD_LINES) : 0
-        const oldCells = oldCount > 0 ? highlightSlice(baseline, start, oldCount) : []
-        const newShown = newLines.slice(-MAX_NEW_LINES)
-        const dropped = newLines.length - newShown.length
+        // Playing the change out: the original block, then the revealed lines, then
+        // the removed lines struck through one beat at a time before it collapses.
+        const start = toolName === 'write' ? 0 : (region !== null ? region.start : -1)
+        const regionCount = toolName === 'write' ? baseline.length : (region !== null ? region.count : 0)
+        const oldCells = shownOld.length > 0 ? highlightSlice(shownOld, 0, shownOld.length) : []
+        // Pace off — or a skipped playback — shows the change at once instead of
+        // walking the playhead; the live view still holds until the call settles.
+        const finished = play.step === 'done'
+        const revealed = pacingOn && !finished ? Math.min(play.revealed, visibleNew.length) : visibleNew.length
+        const newShown = visibleNew.slice(0, revealed)
         const newCells = highlightSlice(newShown, 0, newShown.length)
-        // A change that leaves fewer lines than it replaces is a deletion: the box
-        // turns red and the removed tail of the old block is struck through.
-        const newComplete = settledArg(entry.call, toolName === 'write' ? 'content' : 'new_string')
-        const removing = count > 0 && newComplete && newShown.length < count
+        const batch = strikeBatch(removal.struck.length)
+        const struckCount = pacingOn && !finished ? Math.min(removal.struck.length, play.struck * batch) : removal.struck.length
+        const struck = new Set(removal.struck.slice(0, struckCount))
+        const removing = removal.struck.length > 0
+        const collapsed = pacingOn && !finished
+          ? play.step === 'collapse' || play.step === 'hold' || (toolName === 'write' && newShown.length > 0)
+          : newShown.length > 0 || removing
         const newSet = newShown.length > 0 ? h('div', { className: 'dcl-newset' },
           newShown.map((text, index) => h(Row, {
             key: 'new' + String(index),
-            number: (start >= 0 ? start : 0) + dropped + index + 1,
+            number: (start >= 0 ? start : 0) + droppedNew + index + 1,
             text,
             cells: newCells[index],
             kind: 'new',
-            delay: Math.min(index, 16) * 18,
             caret: state === 'streaming' && index === newShown.length - 1,
           }))) : null
         const overlay = h('div', {
           key: 'overlay',
-          className: 'dcl-overlay' + (removing || deleteSettled ? ' is-delete' : newShown.length > 0 ? ' is-live' : ''),
+          className: 'dcl-overlay' + (removing ? ' is-delete' : newShown.length > 0 ? ' is-live' : ''),
           'data-dcl-anchor': '',
+          title: t('skipPlay'),
+          onClick: play.skip,
         },
-        start >= 0 && count > 0
-          ? h('div', { className: 'dcl-collapse' + (removing || newShown.length > 0 ? ' is-gone' : '') },
+        shownOld.length > 0
+          ? h('div', { className: 'dcl-collapse' + (collapsed ? ' is-gone' : '') },
             h('div', { className: 'dcl-oldset' },
-              Array.from({ length: oldCount }, (_, i) => h(Row, {
+              shownOld.map((text, i) => h(Row, {
                 key: 'old' + String(i),
-                number: start + i + 1,
-                text: baseline[start + i],
+                number: start >= 0 ? start + i + 1 : null,
+                text,
                 cells: oldCells[i],
                 kind: 'old',
+                removing: struck.has(i),
               }))))
           : null,
         newSet)
@@ -1236,7 +1536,7 @@ window.__ModuleLoader__.load({
             }))
           }
           rows.push(overlay)
-          const from = start + count
+          const from = start + regionCount
           const last = Math.min(baseline.length, MAX_FILE_VIEW)
           if (from < last) {
             const afterCells = highlightSlice(baseline, from, last - from)
@@ -1408,16 +1708,38 @@ window.__ModuleLoader__.load({
                       'aria-label': t('drinkTea'),
                       'aria-pressed': drink === 'tea' ? 'true' : 'false',
                       onClick: () => setDrinkPick('tea'),
-                    }, '\u{1f375}'))))
+                    }, '\u{1f375}'))),
+                h('div', { className: 'dcl-settings-row' },
+                  h('span', { className: 'dcl-settings-label' }, t('paceLabel')),
+                  h('div', { className: 'dcl-seg' },
+                    h('button', {
+                      type: 'button',
+                      className: 'dcl-seg-btn' + (pace === 'slow' ? ' is-on' : ''),
+                      'aria-pressed': pace === 'slow' ? 'true' : 'false',
+                      onClick: () => setPacePick('slow'),
+                    }, t('paceSlow')),
+                    h('button', {
+                      type: 'button',
+                      className: 'dcl-seg-btn' + (pace === 'normal' ? ' is-on' : ''),
+                      'aria-pressed': pace === 'normal' ? 'true' : 'false',
+                      onClick: () => setPacePick('normal'),
+                    }, t('paceNormal')),
+                    h('button', {
+                      type: 'button',
+                      className: 'dcl-seg-btn' + (pace === 'off' ? ' is-on' : ''),
+                      'aria-pressed': pace === 'off' ? 'true' : 'false',
+                      onClick: () => setPacePick('off'),
+                    }, t('paceOff')))))
               : null),
           h('span', { className: 'dcl-pill is-' + state, role: 'status' }, h('span', { className: 'dcl-dot' }), pillText)),
         strip,
         h('div', {
           className: 'dcl-body',
           ref: bodyRef,
-          onScroll: event => {
-            const el = event.currentTarget
-            stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120
+          onWheel: event => {
+            // Scrolling up means the reader is looking at something else; scrolling
+            // back down re-arms the follow.
+            stickRef.current = event.deltaY > 0
           },
         }, notices, rows),
         sceneOn
@@ -1431,6 +1753,8 @@ window.__ModuleLoader__.load({
     }
 
     return {
+      /** Pure pacing helpers, exposed for the offline probes in `dev/`. */
+      probe: { nextBeat, planBlockRemoval, revealStep, strikeStep, strikeBatch, usePacing, shouldReveal },
       inject: ['slots', 'locale', 'sidebarRightTabs', 'sidebarRight', 'remote', 'remote.workspaceFiles'],
       apply(ctx) {
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-code-live: dictionaries')
@@ -1487,13 +1811,18 @@ window.__ModuleLoader__.load({
             for (const call of running || []) {
               if (!isFileCall(call) || pathOf(call) === '') continue
               if (seenRef.current.has(call.callId)) continue
-              seenRef.current.add(call.callId)
               try {
-                const active = ctx.sidebarRight.active()
-                // Already showing: the panel follows by itself.
-                if (active !== undefined && active.kind === TAB_KIND) continue
+                const current = ctx.sidebarRight.active()
+                // Showing means the tab is in front *and* the column is expanded.
+                if (!shouldReveal(current === undefined ? undefined : current.kind, ctx.sidebarRight.isExpanded())) {
+                  seenRef.current.add(call.callId)
+                  continue
+                }
                 const previous = document.activeElement
                 ctx.sidebarRight.openTab(TAB_KIND)
+                // Settled only once the open went through: a refused open (no Session
+                // surface yet) retries on the next commit instead of losing the call.
+                seenRef.current.add(call.callId)
                 // The column focuses the pane it opens into; give the caret back.
                 if (previous !== null && previous !== document.body && typeof previous.focus === 'function') {
                   setTimeout(() => {

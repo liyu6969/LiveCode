@@ -26,6 +26,26 @@ new Function('window', 'require', src)(global.window, fakeRequire)
 if (!mod) throw new Error('module did not register')
 const plugin = mod.factory(fakeRequire)
 
+// The rig drives its scene by id, and one missing node throws inside its listener
+// setup — before `frame` is ever scheduled — which freezes the character while the
+// CSS-only effects keep working. That is how the code-scroll button shipped
+// missing. Effects never run in this fake-React probe, so check the manifest here.
+const scene = (() => {
+  const start = src.indexOf('const SCENE = {')
+  const end = src.indexOf('\n    /**\n     * Settings the Host half')
+  if (start < 0 || end < 0) throw new Error('SCENE block not found')
+  return new Function('return ' + src.slice(start + 'const SCENE = '.length, end))()
+})()
+// SceneFigure recreates stubs the extracted markup lost; keep this list in step.
+const injectedStubs = ['code-scroll']
+const declaredIds = new Set([...scene.html.matchAll(/id="([^"]+)"/g)].map(match => match[1]))
+const neededIds = [...new Set([...scene.rig.matchAll(/querySelector(?:All)?\('#([^']+)'\)/g)].map(match => match[1]))]
+const missingIds = neededIds.filter(id => !declaredIds.has(id) && !injectedStubs.includes(id))
+if (missingIds.length > 0) {
+  console.error('rig queries ids the scene markup lacks:', missingIds.join(', '))
+  process.exitCode = 1
+}
+
 let TabBody = null
 const ctx = {
   effect: fn => { const cleanup = fn(); return () => {} },
@@ -35,7 +55,7 @@ const ctx = {
     register: (options, component) => { if (options.key === '@local/dsh-code-live') TabBody = component; return () => {} },
   },
   sidebarRightTabs: { register: () => () => {} },
-  sidebarRight: { active: () => undefined, openTab: () => {} },
+  sidebarRight: { active: () => undefined, isExpanded: () => false, openTab: () => {} },
   remote: { workspaceFiles: { read: async () => ({ ok: true, value: { text: '', lines: 0, eof: true } }) } },
 }
 plugin.apply(ctx)
