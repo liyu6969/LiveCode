@@ -76,10 +76,6 @@ OPEN=1 node dev/render-probe.cjs   # also render popovers and held frames
 
 `HANDOFF.md` has the architecture and the decisions behind it.
 
-## License
-
-MIT © 2026 liyu — see [LICENSE](LICENSE).
-
 ## Contact me
 
 WeChat — scan to add me:
@@ -87,3 +83,7 @@ WeChat — scan to add me:
 <img src="assets/wechat-qr.jpg" alt="WeChat QR code" width="220">
 
 X: [@liyust11](https://x.com/liyust11)
+
+## License
+
+MIT © 2026 liyu — see [LICENSE](LICENSE).
