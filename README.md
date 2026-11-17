@@ -15,6 +15,8 @@ now" while you wait.
 The invisible AI given a body: doing the emotional labour for you, and keeping
 you company while you wait.
 
+<img src="assets/livecode-demo.gif" alt="LiveCode in action: the change appears line by line in the sidebar panel" width="640">
+
 ## Features
 
 - **Watch the code being typed.** The change happens on the file's real text,

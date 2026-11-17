@@ -17,6 +17,7 @@
     "locale/*.json",
     "icon.svg",
     "assets/wechat-qr.jpg",
+    "assets/livecode-demo.gif",
     "README.md",
     "README.zh.md",
     "HANDOFF.md",
