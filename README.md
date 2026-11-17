@@ -17,16 +17,12 @@ doing the emotional labour for you.
 
 ## Features
 
-- **Live, in place.** See the change happen on the file's real text, not in a
-  diff window somewhere else.
-- **Then the real thing.** When the call settles you get the whole file, with a
-  quiet change bar beside every line that moved.
-- **One tab per file.** Every file the session touched gets its own tab, and the
-  panel follows whoever is being written.
-- **Colour that belongs here.** Syntax tinting that follows the host theme —
-  nothing glares, nothing clashes.
-- **Company.** The character types while code streams, burns out past 200 lines,
-  takes a coffee (or tea) after 5 idle minutes and naps after 10.
+- **Watch the code being typed.** The change happens on the file's real text,
+  line by line — not in a diff you read afterwards.
+- **The AI, personified.** The invisible agent becomes a character at the bottom
+  of the panel: typing, wearing out, taking a coffee.
+- **Your character, your drink.** Switch between 大肥鱼 and 小绿, coffee and tea,
+  and show or hide the scene, from the gear.
 
 ## Install
 
