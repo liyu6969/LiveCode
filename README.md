@@ -5,9 +5,8 @@ English | [中文](README.zh.md)
 **Watch the code being written.**
 
 Most of the time an agent finishes, hands you a diff, and you read it after the
-fact. LiveCode plays that moment instead: the file's own text, the region about
-to change boxed in place, the old lines folding away and the new ones typing in
-one at a time — then the settled file, ready to scroll.
+fact. LiveCode plays that moment instead — for the feeling of watching it happen,
+the thing a finished diff never gives you.
 
 It does not make the agent faster. It makes the process something you can watch,
 and that is the point: a small, steady dose of "something is being built right
