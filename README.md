@@ -13,7 +13,7 @@ and that is the point: a small, steady dose of "something is being built right
 now" while you wait.
 
 A character sits at the bottom of the panel: the invisible agent given a body,
-typing along with you.
+doing the emotional labour for you.
 
 ## Features
 
