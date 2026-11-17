@@ -10,7 +10,7 @@
 
 把那个看不见的 AI 显化成一个人，正在帮你心情的劳作，也是一种等待的陪伴。
 
-<img src="assets/livecode-demo.gif" alt="LiveCode 实际效果：改动在侧栏面板里一行行长出来" width="640">
+<p align="center"><img src="assets/livecode-demo.gif" alt="LiveCode 实际效果：改动在侧栏面板里一行行长出来" width="640"></p>
 
 ## 功能
 
