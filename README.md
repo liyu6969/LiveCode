@@ -24,6 +24,8 @@ you company while you wait.
 - **The AI, personified.**
 - **Your character, your drink.** Switch between 大肥鱼 and 小绿, coffee and tea,
   and show or hide the scene, from the gear.
+- **Works in code mode.** When the agent writes through a `run_code` program,
+  the nested `write` / `edit` calls open the panel too.
 
 ## Install
 

@@ -20,6 +20,8 @@
 - **已落定**：`useChat(s => s.legacy.nodes)` 里的 `kind === 'tool-result'` 节点（`isError` 决定已应用/未生效）
 - **原文件**：调用进行中通过 `remote.workspaceFiles.read` 分页读，按 `callId|path` 缓存（`base`）；落定后再读一次当前文件（`after`，独立缓存）
 - 只跟 `write` / `edit`；`apply_patch`、shell 改动不管
+- **走整棵 call 树**：PTC 预设下模型只直接调 `run_code`，真正的 `write` / `edit` 是它的 `subCalls`（id 形如 `<parent>:ptc:<n>`，由 `tool/ptc-dispatch-start` / `tool/ptc-dispatch` 事件生成）。`collectFiles` 和自动打开 watcher 都用 `walkCalls` 递归，只看根 call 会让面板永远空着（用户报过：左边“代码 · Write ops.py module”下面已经在“写入”，右边还是“还没有文件改动”）。
+- PTC 子调用的参数是**一次到齐**的密封 `PartialArguments`，没有逐字流式；所以子调用要么演“已看到全文”的回放，要么直接落定。它也可能在能读原文件之前就已经把文件改掉，`beforeEdit()` 用 `new_string`/`old_string` 从 `after` 反推 `before` 来补 diff。
 
 ## 关键状态（CodeLiveTab 内）
 
@@ -104,9 +106,11 @@
 
 `node dev/render-probe.cjs`（加 `OPEN=1` 会把所有布尔态打开，连弹窗一起渲染） —— 无头渲染三种状态（空页 / 已落定 / 流式中），用假 React + 假 ctx 把 `CodeLiveTab` 真跑一遍。
 
-另有三个探针：
+另有五个探针：
 
 - `node dev/autoopen-probe.cjs` —— 自动打开 watcher（render-probe 的假 React 不跑 effect，覆盖不到）：面板展开且本 tab 在前时不抢、收起后再写代码要重新打开、切到别的 tab 要抢回来、tab 被关掉要重建、同一个 call 只开一次。
+- `node dev/ptc-probe.cjs` —— `run_code` 里嵌套的 write/edit：运行中的子调用、落定的结果节点、两层嵌套、同一路径取最新、`beforeEdit` 反推，以及空态消失 / tab 名字 / 自动打开（嵌套子调用也要拉起面板）。
+- `node dev/ptc-render-probe.cjs` —— 带 effect 和假读盘的微型 hooks runtime 真渲染 `CodeLiveTab`：落定的嵌套 edit 有改动竖线、运行中的嵌套 write 不是空态、原文件读取抢在写入之后（`foo` 仍在 `foo bar` 里）时落定 diff 仍能反推出来。
 
 - `node dev/pace-probe.cjs` —— 纯函数层：LCS 删除判定、两行改动 ~1.36s、三行删除 ~1.26s、400 行写入 ~2.1s、240 行删除 12 拍。
 - `node dev/pacing-probe.cjs` —— 用一个微型 hooks runtime + 假时钟把 `usePacing` 真跑一遍：等待流、落定后补播、换 callId 重置、`skip`、`pace=off`。能抓到"某段常量被误删导致 ReferenceError"这类崩溃（曾经发生过：重抽 SCENE 资源时把紧跟其后的 `SETTINGS` 一起覆盖掉，面板直接空白）。
@@ -119,5 +123,7 @@
 - 没有配置项（自动打开不可关、颜色不可配）
 - 单文件最多渲染 1500 行（`MAX_FILE_VIEW`）；diff 中间段超过 500×500 行退化成整段标记
 - "缩小替换"的颜色在参数收尾那一刻从绿翻红（有过渡但不完美）
+- PTC 子调用的参数是一次到齐的，没有逐字流：回放的是整段内容，不是真的一行行 stream 出来
+- PTC 写入可能比“读原文件”先完成；这时无法知道原文，面板按“整段新内容”演（edit 会用 `old_string` 反推，write 只能全标记）
 - 未做：背景打开（保留用户当前 tab）、超长文件视口虚拟化、`apply_patch` 支持
 - 场景尺寸固定在 `.dcl-scene`（高 168px、宽 min(440px,100%)）；它没有底板：容器和 `.scene` 背景都透明、边框/投影去掉、`.screen-glow` 隐藏、顶部 26% 渐变遮罩。改大小/位置只动这一条规则

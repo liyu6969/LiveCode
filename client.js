@@ -489,6 +489,26 @@ window.__ModuleLoader__.load({
       return !!call && FILE_TOOLS[call.name] === true
     }
 
+    /**
+     * Visit one Tool call and every call nested under it. A PTC `run_code`
+     * program is a single root call whose `subCalls` hold the writes, edits and
+     * commands the model actually dispatched, so a file change can be invisible
+     * to a reader that only scans the roots. Depth is bounded by the Host, and
+     * `seen` guards against a repeated id.
+     * @param block - the root call block.
+     * @param visit - called once per distinct call, root first.
+     */
+    function walkCalls(block, visit) {
+      const seen = new Set()
+      const walk = value => {
+        if (!value || typeof value !== 'object' || seen.has(value.callId)) return
+        seen.add(value.callId)
+        visit(value)
+        for (const child of value.subCalls || []) walk(child)
+      }
+      walk(block)
+    }
+
     /** The recorded `file_path` argument so far, or the empty string. */
     function pathOf(call) {
       return textOf(call, 'file_path')
@@ -520,8 +540,8 @@ window.__ModuleLoader__.load({
      * Every file this Session touched, one entry per path, holding that path's
      * newest call. Entries keep the order a file was first touched in, so a tab
      * does not jump around when the same file is edited again.
-     * @param running - the live calls.
-     * @param nodes - the settled timeline nodes.
+     * @param running - the live calls, including their nested calls.
+     * @param nodes - the settled timeline nodes, including nested calls.
      * @returns the file entries, oldest first touch first.
      */
     function collectFiles(running, nodes) {
@@ -537,10 +557,11 @@ window.__ModuleLoader__.load({
         }
         if (time >= previous.time) files.set(path, { ...previous, call, settled, time })
       }
-      for (const call of running || []) add(call, false, call.time || 0)
+      const collect = block => add(block, block.kind === 'tool-result', block.time || 0)
+      for (const call of running || []) walkCalls(call, collect)
       for (const node of nodes || []) {
         if (!node || node.kind !== 'tool-result') continue
-        add(node, true, node.time || 0)
+        walkCalls(node, collect)
       }
       return [...files.values()].sort((a, b) => a.firstTime - b.firstTime)
     }
@@ -580,6 +601,45 @@ window.__ModuleLoader__.load({
       if (at < 0) return null
       const before = joined.slice(0, at)
       return { start: before.split('\n').length - 1, count: oldText.split('\n').length }
+    }
+
+    /**
+     * The file as it was before an edit, rebuilt by swapping the call's own
+     * `new_string` back for its `old_string`. A PTC subcall arrives with
+     * finished arguments, so by the time the panel can read the file the write
+     * has usually landed already; the call's two strings still describe it.
+     * @param after - the current file lines.
+     * @param newText - the call's `new_string`.
+     * @param oldText - the call's `old_string`; empty for a pure insertion.
+     * @returns the pre-edit lines, or null when the edit cannot be located.
+     */
+    function beforeEdit(after, newText, oldText) {
+      if (!newText) return null
+      const joined = after.join('\n')
+      const at = joined.indexOf(newText)
+      if (at < 0) return null
+      return (joined.slice(0, at) + oldText + joined.slice(at + newText.length)).split('\n')
+    }
+
+    /**
+     * Recover the pre-call file when a PTC subcall may already have changed it.
+     * Child arguments arrive whole, so the write can land before the panel's
+     * read of the original returns; the call's own strings still describe the
+     * change. Direct calls stream their arguments first, so their read cannot
+     * race the mutation and they never need this.
+     * @param toolName - `write` or `edit`.
+     * @param lines - the file the read returned.
+     * @param newText - the call's `content` or `new_string`.
+     * @param oldText - the call's `old_string`; empty for a write.
+     * @returns the pre-call lines, or null when no honest original is left.
+     */
+    function recoverOriginal(toolName, lines, newText, oldText) {
+      if (!newText) return null
+      const joined = lines.join('\n')
+      if (toolName === 'write') return joined.trimEnd() === newText.trimEnd() ? null : lines
+      // An edit whose old text is still in the file cannot have applied yet.
+      if (oldText !== '' && joined.includes(oldText)) return lines
+      return beforeEdit(lines, newText, oldText)
     }
 
     /**
@@ -1056,10 +1116,17 @@ window.__ModuleLoader__.load({
       const filePath = entry ? entry.path : ''
       const settled = entry ? entry.settled : false
       const failed = settled && entry.call.isError === true
+      // A PTC subcall: its arguments arrive whole, so a read of the file cannot
+      // be trusted to predate the change the way a streamed call's read can.
+      const nested = entry !== null && entry.call.parentCallId !== undefined
 
       const cacheRef = useRef(new Map())
       const seenRunningRef = useRef(new Set())
       const [base, setBase] = useState(null)
+      // The read resolves after a few renders; reconciliation needs the call as
+      // it is now, not as the effect saw it when the read started.
+      const entryRef = useRef(entry)
+      entryRef.current = entry
 
       // Every callId observed while it was still running can have its original read;
       // one first seen after settlement cannot, and must not read the mutated file.
@@ -1085,9 +1152,29 @@ window.__ModuleLoader__.load({
         setBase({ callId, status: 'loading', lines: [], error: null })
         readFile(sessionId, filePath, controller.signal).then(result => {
           if (!live) return
+          // A PTC subcall can finish before this read returns; recover the file it
+          // started from instead of mistaking the mutated text for the original.
+          const current = entryRef.current
+          const call = current !== null && current.call.callId === callId ? current.call : null
+          const recovered = result.ok && call !== null && call.parentCallId !== undefined
+            ? recoverOriginal(
+              toolName,
+              result.lines,
+              textOf(call, toolName === 'write' ? 'content' : 'new_string'),
+              toolName === 'edit' ? textOf(call, 'old_string') : '',
+            )
+            : undefined
           // A `write` may create the file: no original text is not a failure there.
           const next = result.ok
-            ? { callId, status: 'ready', lines: result.lines, error: null, truncated: result.truncated === true }
+            ? recovered === null
+              ? { callId, status: 'none', lines: [], error: null }
+              : {
+                callId,
+                status: 'ready',
+                lines: recovered === undefined ? result.lines : recovered,
+                error: null,
+                truncated: result.truncated === true,
+              }
             : toolName === 'write'
               ? { callId, status: 'none', lines: [], error: null }
               : { callId, status: 'error', lines: [], error: result.error }
@@ -1454,7 +1541,17 @@ window.__ModuleLoader__.load({
             notices.push(h('div', { key: 'file-truncated', className: 'dcl-hint' }, t('fileTruncated')))
           }
           const shown = lines.slice(0, MAX_FILE_VIEW)
-          const diff = baseline.length > 0 ? diffRows(baseline, shown) : null
+          // A PTC edit arrives with finished arguments, so the file may already
+          // have changed by the time it is readable. Its own strings rebuild the
+          // original from the settled file; a direct call keeps its read, which
+          // predates the mutation. A failed edit changed nothing: never rewind it.
+          const rebuilt = toolName === 'edit' && !failed && view !== null && view.status === 'ready'
+            ? beforeEdit(view.lines, streamText, oldText)
+            : null
+          const beforeLines = failed
+            ? shown
+            : (rebuilt !== null && (nested || baseline.length === 0 || region === null) ? rebuilt : baseline)
+          const diff = beforeLines.length > 0 ? diffRows(beforeLines, shown) : null
           // Deletions have no line left to mark: the settled view shows the file as
           // it now is, so only surviving changed lines carry a bar.
           const fileRows = (diff !== null
@@ -1753,8 +1850,11 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      /** Pure pacing helpers, exposed for the offline probes in `dev/`. */
-      probe: { nextBeat, planBlockRemoval, revealStep, strikeStep, strikeBatch, usePacing, shouldReveal },
+      /** Pure helpers, exposed for the offline probes in `dev/`. */
+      probe: {
+        nextBeat, planBlockRemoval, revealStep, strikeStep, strikeBatch, usePacing, shouldReveal,
+        collectFiles, walkCalls, beforeEdit, recoverOriginal,
+      },
       inject: ['slots', 'locale', 'sidebarRightTabs', 'sidebarRight', 'remote', 'remote.workspaceFiles'],
       apply(ctx) {
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-code-live: dictionaries')
@@ -1808,15 +1908,15 @@ window.__ModuleLoader__.load({
           const running = useChat(snapshot => snapshot.legacy.runningCalls)
           const seenRef = useRef(new Set())
           useEffect(() => {
-            for (const call of running || []) {
-              if (!isFileCall(call) || pathOf(call) === '') continue
-              if (seenRef.current.has(call.callId)) continue
+            const reveal = call => {
+              if (!isFileCall(call) || pathOf(call) === '') return
+              if (seenRef.current.has(call.callId)) return
               try {
                 const current = ctx.sidebarRight.active()
                 // Showing means the tab is in front *and* the column is expanded.
                 if (!shouldReveal(current === undefined ? undefined : current.kind, ctx.sidebarRight.isExpanded())) {
                   seenRef.current.add(call.callId)
-                  continue
+                  return
                 }
                 const previous = document.activeElement
                 ctx.sidebarRight.openTab(TAB_KIND)
@@ -1834,6 +1934,7 @@ window.__ModuleLoader__.load({
                 reportError(error)
               }
             }
+            for (const call of running || []) walkCalls(call, reveal)
           }, [running])
           return null
         }
