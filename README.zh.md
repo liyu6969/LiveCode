@@ -66,7 +66,7 @@ OPEN=1 node dev/render-probe.cjs   # 连弹窗和停留帧一起渲染
 
 微信：扫码加我
 
-![微信二维码](assets/wechat-qr.jpg)
+<img src="assets/wechat-qr.jpg" alt="微信二维码" width="160">
 
 X：[liyust11](https://x.com/liyust11)
 

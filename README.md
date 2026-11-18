@@ -82,7 +82,7 @@ OPEN=1 node dev/render-probe.cjs   # also render popovers and held frames
 
 WeChat — scan to add me:
 
-![WeChat QR code](assets/wechat-qr.jpg)
+<img src="assets/wechat-qr.jpg" alt="WeChat QR code" width="160">
 
 X: [@liyust11](https://x.com/liyust11)
 
